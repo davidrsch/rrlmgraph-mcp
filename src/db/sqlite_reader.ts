@@ -380,9 +380,13 @@ export class SQLiteGraph {
       }
       const pagerank = node.pagerank ?? 0;
       const tw = node.task_weight ?? 0.5;
+      // audit/expert-review fix (Vera Kozlov): restore agreed weights from
+      // implementation_plan.md §compute_relevance:
+      //   0.40 * sem_sim + 0.25 * centrality + 0.25 * trace_score + 0.10 * co_change
+      // CO_CHANGES are deferred; depth_penalty is used as a structural proxy.
       const depthPenalty = 1 / (1 + node.depth * 0.5);
       const score =
-        0.4 * semScore + 0.35 * pagerank + 0.15 * tw + 0.1 * depthPenalty;
+        0.4 * semScore + 0.25 * pagerank + 0.25 * tw + 0.1 * depthPenalty;
       return { node, score };
     });
 
@@ -413,6 +417,8 @@ export class SQLiteGraph {
     };
   }
 
+  // audit/expert-review fix (Nadia Osei): include callers/callees in compressed
+  // Φ(v) format per implementation_plan.md §assemble_context_string.
   private _formatNodeContext(node: NodeRow): string {
     const lines: string[] = [];
     const type = node.node_type ?? "node";
@@ -423,6 +429,29 @@ export class SQLiteGraph {
       lines.push("**Documentation**:");
       lines.push(node.roxygen_text.slice(0, 400));
     }
+    // Callers / callees — part of compressed Φ(v) format
+    const callees = (
+      this.db
+        .prepare(
+          `SELECT n.name FROM edges e
+           JOIN nodes n ON n.node_id = e.target_id
+           WHERE e.source_id = ? AND e.edge_type = 'CALLS'
+           LIMIT 10`
+        )
+        .all(node.node_id) as Array<{ name: string }>
+    ).map((r) => r.name);
+    const callers = (
+      this.db
+        .prepare(
+          `SELECT n.name FROM edges e
+           JOIN nodes n ON n.node_id = e.source_id
+           WHERE e.target_id = ? AND e.edge_type = 'CALLS'
+           LIMIT 10`
+        )
+        .all(node.node_id) as Array<{ name: string }>
+    ).map((r) => r.name);
+    if (callees.length > 0) lines.push(`**Calls**: ${callees.join(", ")}`);
+    if (callers.length > 0) lines.push(`**Called by**: ${callers.join(", ")}`);
     if (node.body_text) {
       lines.push("```r");
       lines.push(node.body_text.slice(0, 1200));

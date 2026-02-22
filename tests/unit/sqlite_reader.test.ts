@@ -43,10 +43,12 @@ describe("queryContext", () => {
     expect(result.token_estimate).toBeGreaterThan(0);
   });
 
+  // audit/expert-review fix: token budget is a HARD constraint
+  // per Round 7 success criterion #2. No overshoot is acceptable.
   it("respects budget_tokens hard limit", () => {
     const budget = 200;
     const result = graph.queryContext("export to sqlite", undefined, budget);
-    expect(result.token_estimate).toBeLessThanOrEqual(budget + 50); // small overshoot OK
+    expect(result.token_estimate).toBeLessThanOrEqual(budget);
   });
 
   it("uses provided seed_node when it exists", () => {
@@ -61,9 +63,12 @@ describe("queryContext", () => {
     expect(result.context_string).toBeDefined();
   });
 
-  it("returns seed_node null when graph is empty can't find seed", () => {
-    // Empty graph case — tested indirectly: fixture always has nodes so seed is found
-    expect(result => result).toBeDefined();
+  // audit/expert-review fix: previous test was a dead assertion
+  // (a lambda is always defined). Replaced with a real empty-graph guard check.
+  it("returns defined result even when no seed can be found", () => {
+    const result = graph.queryContext("do something", "zzz_nonexistent_zzz");
+    expect(result.context_string).toBeDefined();
+    expect(typeof result.token_estimate).toBe("number");
   });
 });
 
