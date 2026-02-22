@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+*.sqlite
+*.db
+*.log
+coverage/
+.vitest/

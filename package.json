@@ -1,0 +1,61 @@
+{
+  "name": "rrlmgraph-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for rrlmgraph — graph-based R project context for LLM coding assistants",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "r",
+    "rrlmgraph",
+    "llm",
+    "context",
+    "sqlite"
+  ],
+  "homepage": "https://github.com/davidrsch/rrlmgraph-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/davidrsch/rrlmgraph-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davidrsch/rrlmgraph-mcp.git"
+  },
+  "license": "MIT",
+  "author": "davidrsch",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "rrlmgraph-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "src/db/schema.sql",
+    "templates/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc && node esbuild.config.js",
+    "build:tsc": "tsc",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0",
+    "better-sqlite3": "^9.6.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.21.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

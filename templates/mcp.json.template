@@ -1,0 +1,23 @@
+{
+  // rrlmgraph-mcp configuration for VS Code MCP
+  // Copy this file to .vscode/mcp.json in your R project workspace.
+  // Replace ${workspaceFolder} with an absolute path if needed.
+  "servers": {
+    "rrlmgraph": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "rrlmgraph-mcp",
+        "--project-path",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        // Optional overrides — delete lines you don't need:
+        //
+        // "RRLMGRAPH_DB_PATH": "${workspaceFolder}/.rrlmgraph/graph.sqlite",
+        // "RRLMGRAPH_BUDGET_TOKENS": "6000",
+        // "RRLMGRAPH_EMBED_METHOD": "tfidf"
+      }
+    }
+  }
+}
