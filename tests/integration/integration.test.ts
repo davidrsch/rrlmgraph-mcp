@@ -90,12 +90,25 @@ describe("query_context tool", () => {
     expect(text).toContain("Nodes retrieved");
   });
 
+  // audit/expert-review fix: verify that budget is actually
+  // enforced, not just that the call doesn't error.
   it("budget not exceeded", async () => {
+    const budget = 100;
     const result = await client.callTool({
       name: "query_context",
-      arguments: { query: "query context traversal", budget_tokens: 100 },
+      arguments: { query: "query context traversal", budget_tokens: budget },
     });
     expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ type: string; text: string }>)
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+    // Extract token estimate from footer line "**Token estimate**: ~NNN"
+    const match = text.match(/Token estimate\*\*:\s*~?(\d+)/);
+    if (match) {
+      const tokenEstimate = Number(match[1]);
+      expect(tokenEstimate).toBeLessThanOrEqual(budget);
+    }
   });
 });
 
