@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SQLiteGraph } from "../../src/db/sqlite_reader.js";
+import { SQLiteGraph, buildQueryVector } from "../../src/db/sqlite_reader.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -171,5 +171,63 @@ describe("addTaskTrace / getTaskHistory", () => {
   it("throws on out-of-range polarity", () => {
     expect(() => graph.addTaskTrace("bad", [], 2.0)).toThrow(RangeError);
     expect(() => graph.addTaskTrace("bad", [], -1.5)).toThrow(RangeError);
+  });
+});
+// ── buildQueryVector — TF formula (issue #13) ──────────────────────────────────
+//
+// The TF component must use log-normalised TF to match text2vec's formula:
+//   TF(t, q) = log(1 + count(t, q)) / log(1 + |q|)
+//
+// Before the fix the raw proportional formula (count / |q|) was used, which
+// diverges from R for multi-term queries (e.g. count=2, |q|=3 gives 0.667 raw
+// vs 0.792 log-normalised).
+
+/** Build a tiny in-memory vocab for formula testing. */
+function makeVocab(entries: Array<[string, number]>): Map<string, { term: string; idf: number; doc_count: number; term_count: number }> {
+  return new Map(
+    entries.map(([term, idf]) => [term, { term, idf, doc_count: 1, term_count: 1 }])
+  );
+}
+
+describe("buildQueryVector — log-normalised TF formula", () => {
+  it("single occurrence in single-token query: TF = log(2)/log(2) = 1.0", () => {
+    const vocab = makeVocab([["graph", 0.5]]);
+    const vec = buildQueryVector("graph", vocab);
+    const score = vec.get("graph")!;
+    // log(1+1)/log(1+1) * 0.5 = 1.0 * 0.5
+    expect(score).toBeCloseTo(0.5, 6);
+  });
+
+  it("single occurrence in two-token query: TF = log(2)/log(3) ≈ 0.6309", () => {
+    const vocab = makeVocab([["build", 1.0]]);
+    const vec = buildQueryVector("build graph", vocab);
+    const score = vec.get("build")!;
+    // count=1, tokens=2: log(2)/log(3) * 1.0
+    const expected = Math.log(2) / Math.log(3);
+    expect(score).toBeCloseTo(expected, 6);
+  });
+
+  it("two occurrences in three-token query: TF = log(3)/log(4) ≈ 0.7925 (not 0.6667)", () => {
+    const vocab = makeVocab([["query", 0.8]]);
+    const vec = buildQueryVector("query context query", vocab);
+    const score = vec.get("query")!;
+    // count=2, tokens=3: log(3)/log(4) * 0.8
+    const expectedTf = Math.log(1 + 2) / Math.log(1 + 3);
+    expect(score).toBeCloseTo(expectedTf * 0.8, 6);
+    // Confirm it is NOT the raw-TF value (2/3 * 0.8 = 0.5333...)
+    expect(score).not.toBeCloseTo((2 / 3) * 0.8, 4);
+  });
+
+  it("unknown terms are excluded from the vector", () => {
+    const vocab = makeVocab([["known", 1.0]]);
+    const vec = buildQueryVector("known unknown", vocab);
+    expect(vec.has("unknown")).toBe(false);
+    expect(vec.has("known")).toBe(true);
+  });
+
+  it("empty query returns empty vector", () => {
+    const vocab = makeVocab([["build", 1.0]]);
+    const vec = buildQueryVector("", vocab);
+    expect(vec.size).toBe(0);
   });
 });

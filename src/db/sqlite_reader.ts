@@ -132,7 +132,8 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length > 1);
 }
 
-function buildQueryVector(
+/** @internal Exported for unit testing only. */
+export function buildQueryVector(
   query: string,
   vocab: Map<string, TfidfVocabRow>
 ): Map<string, number> {
@@ -145,7 +146,13 @@ function buildQueryVector(
   for (const [term, count] of tf) {
     const row = vocab.get(term);
     if (row) {
-      result.set(term, (count / tokens.length) * row.idf);
+      // Log-normalised TF to match text2vec's default encoding:
+      //   TF(t, q) = log(1 + count(t, q)) / log(1 + |q|)
+      // Proportional raw TF (count / |q|) diverges on short queries and
+      // does not reproduce the IDF weighting expected by the R side.
+      // See rrlmgraph-mcp#13.
+      const logTf = Math.log(1 + count) / Math.log(1 + tokens.length);
+      result.set(term, logTf * row.idf);
     }
   }
   return result;
@@ -379,7 +386,7 @@ export class SQLiteGraph {
       }
       const pagerank = node.pagerank ?? 0;
       const tw = node.task_weight ?? 0.5;
-      // audit/expert-review fix (Vera Kozlov): restore agreed weights from
+      // audit/expert-review fix: restore agreed weights from
       // implementation_plan.md §compute_relevance:
       //   0.40 * sem_sim + 0.25 * centrality + 0.25 * trace_score + 0.10 * co_change
       // CO_CHANGES are deferred; depth_penalty is used as a structural proxy.
@@ -416,7 +423,7 @@ export class SQLiteGraph {
     };
   }
 
-  // audit/expert-review fix (Nadia Osei): include callers/callees in compressed
+  // audit/expert-review fix: include callers/callees in compressed
   // Φ(v) format per implementation_plan.md §assemble_context_string.
   private _formatNodeContext(node: NodeRow): string {
     const lines: string[] = [];
