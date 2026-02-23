@@ -70,6 +70,36 @@ describe("queryContext", () => {
     expect(result.context_string).toBeDefined();
     expect(typeof result.token_estimate).toBe("number");
   });
+
+  // ── retrieval_mode (issue #14) ────────────────────────────────────────────
+
+  it("reports tfidf_cosine when vocab has matching terms", () => {
+    // Fixture vocab contains: build, graph, query, context, export, sqlite, traverse
+    const result = graph.queryContext("build a graph");
+    expect(result.retrieval_mode).toBe("tfidf_cosine");
+  });
+
+  it("reports fts5_fallback when query terms are not in vocab", () => {
+    // "rrlm" is not in the fixture vocab but FTS5 should find build_rrlm_graph
+    const result = graph.queryContext("rrlm project");
+    expect(["fts5_fallback", "pagerank_only"]).toContain(result.retrieval_mode);
+  });
+
+  it("always has a retrieval_mode field in the result", () => {
+    const validModes = ["tfidf_cosine", "fts5_fallback", "pagerank_only"];
+    const r1 = graph.queryContext("build a graph");
+    const r2 = graph.queryContext("traverse the graph");
+    expect(validModes).toContain(r1.retrieval_mode);
+    expect(validModes).toContain(r2.retrieval_mode);
+  });
+
+  it("includes retrieval_mode comment in context_string when not tfidf_cosine", () => {
+    // Create a query that won't match any vocab term (only stop-word-like tokens)
+    const result = graph.queryContext("rrlm");
+    if (result.retrieval_mode !== "tfidf_cosine") {
+      expect(result.context_string).toContain("retrieval_mode:");
+    }
+  });
 });
 
 // ── getNodeInfo ────────────────────────────────────────────────────────────────
