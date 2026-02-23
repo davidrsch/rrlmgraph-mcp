@@ -85,7 +85,6 @@ if (cliArgs.values["version"]) {
   // package.json is in the dist/../ tree after build; use dynamic import
   const { createRequire } = await import("node:module");
   const req = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   const pkg = req("../../package.json") as { version: string };
   console.log(pkg.version);
   process.exit(0);

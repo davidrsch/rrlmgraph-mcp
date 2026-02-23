@@ -11,7 +11,6 @@ import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import type {
   NodeRow,
-  EdgeRow,
   TaskTraceRow,
   TfidfVocabRow,
   GraphMetadataRow,
