@@ -11,7 +11,6 @@ import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import type {
   NodeRow,
-  EdgeRow,
   TaskTraceRow,
   TfidfVocabRow,
   GraphMetadataRow,
@@ -133,7 +132,8 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length > 1);
 }
 
-function buildQueryVector(
+/** @internal Exported for unit testing only. */
+export function buildQueryVector(
   query: string,
   vocab: Map<string, TfidfVocabRow>
 ): Map<string, number> {
@@ -146,7 +146,13 @@ function buildQueryVector(
   for (const [term, count] of tf) {
     const row = vocab.get(term);
     if (row) {
-      result.set(term, (count / tokens.length) * row.idf);
+      // Log-normalised TF to match text2vec's default encoding:
+      //   TF(t, q) = log(1 + count(t, q)) / log(1 + |q|)
+      // Proportional raw TF (count / |q|) diverges on short queries and
+      // does not reproduce the IDF weighting expected by the R side.
+      // See rrlmgraph-mcp#13.
+      const logTf = Math.log(1 + count) / Math.log(1 + tokens.length);
+      result.set(term, logTf * row.idf);
     }
   }
   return result;
@@ -240,16 +246,18 @@ export class SQLiteGraph {
    * 1. If seed_node is provided and exists, use it.
    * 2. Try FTS5 full-text search on body_text + name.
    * 3. Fall back to TF-IDF term overlap against node names.
+   *
+   * Returns the node id and the strategy used (for retrieval_mode tracking).
    */
   private _findSeedNode(
     query: string,
     seedNodeName?: string
-  ): string | null {
+  ): { nodeId: string | null; via: "explicit" | "fts5" | "overlap" | "pagerank" } {
     if (seedNodeName) {
       const row = this.db
         .prepare("SELECT node_id FROM nodes WHERE name = ? LIMIT 1")
         .get(seedNodeName) as { node_id: string } | undefined;
-      if (row) return row.node_id;
+      if (row) return { nodeId: row.node_id, via: "explicit" };
     }
 
     // FTS5 search
@@ -265,7 +273,7 @@ export class SQLiteGraph {
              LIMIT 1`
           )
           .get(ftsQuery) as { node_id: string } | undefined;
-        if (row) return row.node_id;
+        if (row) return { nodeId: row.node_id, via: "fts5" };
       }
     } catch {
       // FTS not available (old DB without virtual table)
@@ -288,7 +296,7 @@ export class SQLiteGraph {
         bestId = row.node_id;
       }
     }
-    if (bestId) return bestId;
+    if (bestId) return { nodeId: bestId, via: "overlap" };
 
     // Last resort: highest pagerank node
     const top = this.db
@@ -296,7 +304,7 @@ export class SQLiteGraph {
         "SELECT node_id FROM nodes ORDER BY pagerank DESC NULLS LAST LIMIT 1"
       )
       .get() as { node_id: string } | undefined;
-    return top?.node_id ?? null;
+    return { nodeId: top?.node_id ?? null, via: "pagerank" };
   }
 
   // ── BFS traversal ────────────────────────────────────────────────────────
@@ -342,7 +350,7 @@ export class SQLiteGraph {
     maxDepth: number = 3,
     maxNodes: number = 80
   ): ContextResult {
-    const seedId = this._findSeedNode(query, seedNodeName);
+    const { nodeId: seedId, via: seedVia } = this._findSeedNode(query, seedNodeName);
 
     if (!seedId) {
       return {
@@ -350,6 +358,7 @@ export class SQLiteGraph {
         node_ids: [],
         token_estimate: 0,
         seed_node: null,
+        retrieval_mode: "pagerank_only",
       };
     }
 
@@ -367,6 +376,17 @@ export class SQLiteGraph {
         ? Array.from(qVec.values())
         : null;
 
+    // Determine retrieval mode:
+    //   tfidf_cosine  — vocab available and query matched at least one term
+    //   fts5_fallback — no vocab (graph not built with tfidf) but FTS5 found seed
+    //   pagerank_only — neither TF-IDF cosine nor FTS5 contributed
+    const retrieval_mode: ContextResult["retrieval_mode"] =
+      qVec.size > 0
+        ? "tfidf_cosine"
+        : seedVia === "fts5"
+          ? "fts5_fallback"
+          : "pagerank_only";
+
     // Score each node
     const scored = bfsNodes.map((node) => {
       let semScore = 0;
@@ -380,7 +400,7 @@ export class SQLiteGraph {
       }
       const pagerank = node.pagerank ?? 0;
       const tw = node.task_weight ?? 0.5;
-      // audit/expert-review fix (Vera Kozlov): restore agreed weights from
+      // audit/expert-review fix: restore agreed weights from
       // implementation_plan.md §compute_relevance:
       //   0.40 * sem_sim + 0.25 * centrality + 0.25 * trace_score + 0.10 * co_change
       // CO_CHANGES are deferred; depth_penalty is used as a structural proxy.
@@ -406,7 +426,12 @@ export class SQLiteGraph {
       usedTokens += chunkTokens;
     }
 
-    const header = `# rrlmgraph context\n# Query: ${query}\n# Nodes: ${usedIds.length} | Tokens: ~${usedTokens}\n\n`;
+    // Include retrieval_mode in header so callers can inspect the path taken.
+    const modeComment =
+      retrieval_mode !== "tfidf_cosine"
+        ? `# retrieval_mode: ${retrieval_mode}${retrieval_mode === "fts5_fallback" ? " (no TF-IDF vocab; rebuild graph with embed_method=\"tfidf\")" : ""}\n`
+        : "";
+    const header = `# rrlmgraph context\n# Query: ${query}\n# Nodes: ${usedIds.length} | Tokens: ~${usedTokens}\n${modeComment}\n`;
     const context_string = header + chunks.join("\n---\n");
 
     return {
@@ -414,10 +439,11 @@ export class SQLiteGraph {
       node_ids: usedIds,
       token_estimate: usedTokens,
       seed_node: seedId,
+      retrieval_mode,
     };
   }
 
-  // audit/expert-review fix (Nadia Osei): include callers/callees in compressed
+  // audit/expert-review fix: include callers/callees in compressed
   // Φ(v) format per implementation_plan.md §assemble_context_string.
   private _formatNodeContext(node: NodeRow): string {
     const lines: string[] = [];

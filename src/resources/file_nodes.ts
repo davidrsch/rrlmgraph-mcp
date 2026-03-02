@@ -6,7 +6,7 @@
 
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import type { SQLiteGraph } from "../db/sqlite_reader.js";
-import type { ResourceDefinition, ResourceTemplateDefinition } from "./types.js";
+import type { ResourceTemplateDefinition } from "./types.js";
 
 export function createFileNodesResource(
   graph: SQLiteGraph

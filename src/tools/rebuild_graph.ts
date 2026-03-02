@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { SQLiteGraph } from "../db/sqlite_reader.js";
 import type { ToolDefinition } from "./types.js";
+import { resolveRscript } from "../utils/rscript.js";
 
 export const rebuildGraphSchema = z.object({
   incremental: z
@@ -66,7 +67,8 @@ export function createRebuildGraphTool(
 
         const rCode = `${rFunc}('${projPath.replace(/'/g, "\\'")}', cache = TRUE)`;
 
-        const proc = spawn("Rscript", ["--vanilla", "-e", rCode], {
+        const rscript = resolveRscript();
+        const proc = spawn(rscript, ["--vanilla", "-e", rCode], {
           env: { ...process.env },
           stdio: ["ignore", "pipe", "pipe"],
           timeout: 300_000, // 5 min hard timeout
@@ -90,6 +92,11 @@ export function createRebuildGraphTool(
                   text:
                     "**Error**: `Rscript` not found. " +
                     "Please install R and ensure it is on your PATH.\n\n" +
+                    (process.platform === "win32"
+                      ? "On Windows, set the `RSCRIPT_PATH` environment variable to the full " +
+                        "path of `Rscript.exe` (e.g. `C:\\Program Files\\R\\R-4.4.1\\bin\\Rscript.exe`), " +
+                        "or add R's `bin` directory to your `PATH`.\n\n"
+                      : "") +
                     "Download R from: https://cran.r-project.org/",
                 },
               ],

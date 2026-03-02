@@ -74,6 +74,17 @@ export interface ContextResult {
   node_ids: string[];
   token_estimate: number;
   seed_node: string | null;
+  /**
+   * Describes the retrieval path actually used for this query.
+   *
+   * - `"tfidf_cosine"` — TF-IDF vocab was available and the query was
+   *   re-ranked using cosine similarity.
+   * - `"fts5_fallback"` — vocab was empty (e.g. graph built with
+   *   `embed_method = "ollama"`) but an FTS5 seed node was found.
+   * - `"pagerank_only"` — no embedding and no FTS5 match; results are
+   *   ordered by PageRank only.
+   */
+  retrieval_mode: "tfidf_cosine" | "fts5_fallback" | "pagerank_only";
 }
 
 export interface GraphSummary {
