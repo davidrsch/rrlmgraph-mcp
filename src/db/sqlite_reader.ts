@@ -418,7 +418,8 @@ export class SQLiteGraph {
     let usedTokens = 0;
 
     for (const { node } of scored) {
-      const chunk = this._formatNodeContext(node);
+      const isSeed = node.node_id === seedId;
+      const chunk = this._formatNodeContext(node, isSeed);
       const chunkTokens = estimateTokens(chunk);
       if (usedTokens + chunkTokens > budgetTokens) break;
       chunks.push(chunk);
@@ -426,12 +427,15 @@ export class SQLiteGraph {
       usedTokens += chunkTokens;
     }
 
-    // Include retrieval_mode in header so callers can inspect the path taken.
+    // Omit the query from the header — it is re-emitted verbatim by the
+    // benchmark prompt (run_single.R), so including it here wastes tokens.
+    // Include retrieval_mode only when non-default so callers can inspect
+    // the fallback path.
     const modeComment =
       retrieval_mode !== "tfidf_cosine"
         ? `# retrieval_mode: ${retrieval_mode}${retrieval_mode === "fts5_fallback" ? " (no TF-IDF vocab; rebuild graph with embed_method=\"tfidf\")" : ""}\n`
         : "";
-    const header = `# rrlmgraph context\n# Query: ${query}\n# Nodes: ${usedIds.length} | Tokens: ~${usedTokens}\n${modeComment}\n`;
+    const header = `# rrlmgraph context\n# Nodes: ${usedIds.length} | Tokens: ~${usedTokens}\n${modeComment}\n`;
     const context_string = header + chunks.join("\n---\n");
 
     return {
@@ -445,7 +449,11 @@ export class SQLiteGraph {
 
   // audit/expert-review fix: include callers/callees in compressed
   // Φ(v) format per implementation_plan.md §assemble_context_string.
-  private _formatNodeContext(node: NodeRow): string {
+  // isSeed: when true the full body is included ("full" mode, matching the R
+  // assemble_context_string seed-node path).  Non-seed nodes use compressed
+  // mode (signature + shortened docs + callers/callees, no body_text) to cut
+  // structural token overhead on projects where the budget is not binding.
+  private _formatNodeContext(node: NodeRow, isSeed: boolean = false): string {
     const lines: string[] = [];
     const type = node.node_type ?? "node";
     const file = node.file ? ` [${node.file}]` : "";
@@ -453,7 +461,9 @@ export class SQLiteGraph {
     if (node.signature) lines.push(`**Signature**: \`${node.signature}\``);
     if (node.roxygen_text) {
       lines.push("**Documentation**:");
-      lines.push(node.roxygen_text.slice(0, 400));
+      // Full roxygen for seed; one-line excerpt for supporting nodes.
+      const roxygenLimit = isSeed ? 400 : 120;
+      lines.push(node.roxygen_text.slice(0, roxygenLimit));
     }
     // Callers / callees — part of compressed Φ(v) format
     const callees = (
@@ -478,7 +488,9 @@ export class SQLiteGraph {
     ).map((r) => r.name);
     if (callees.length > 0) lines.push(`**Calls**: ${callees.join(", ")}`);
     if (callers.length > 0) lines.push(`**Called by**: ${callers.join(", ")}`);
-    if (node.body_text) {
+    // Include full body source only for the seed node (compressed mode for
+    // supporting nodes mirrors the R assemble_context_string behaviour).
+    if (isSeed && node.body_text) {
       lines.push("```r");
       lines.push(node.body_text.slice(0, 1200));
       lines.push("```");

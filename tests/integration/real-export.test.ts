@@ -96,7 +96,6 @@ describe("real-export integration (rrlmgraph#16)", () => {
     }
 
     graph = new SQLiteGraph(sqlitePath);
-    graph.load();
     console.log("[real-export] SQLite exported successfully, reading back...");
   }, 150_000);
 

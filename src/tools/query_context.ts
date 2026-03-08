@@ -76,6 +76,12 @@ export function createQueryContextTool(graph: SQLiteGraph): ToolDefinition {
             type: "text" as const,
             text: metaFooter,
           },
+          {
+            // Structured node_ids so the benchmark R client can compute NDCG
+            // without parsing the context string (bench#30 / iteration 4).
+            type: "text" as const,
+            text: JSON.stringify({ node_ids: result.node_ids }),
+          },
         ],
       };
     },
