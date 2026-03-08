@@ -1,6 +1,6 @@
 {
   "name": "rrlmgraph-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for rrlmgraph — graph-based R project context for LLM coding assistants",
   "keywords": [
     "mcp",
